@@ -8,6 +8,7 @@ import org.example.namelesschamber.metrics.dto.TodayMetricsDto;
 import org.example.namelesschamber.metrics.service.MetricsService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -16,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/admin/metrics")
 @RequiredArgsConstructor
 @Tag(name = "Admin Metrics", description = "통계 API")
+@PreAuthorize("hasRole('ADMIN')")
 public class MetricsController {
 
     private final MetricsService metricsService;
