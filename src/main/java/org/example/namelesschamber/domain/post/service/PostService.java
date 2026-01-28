@@ -11,6 +11,7 @@ import org.example.namelesschamber.domain.post.dto.response.PostPreviewListRespo
 import org.example.namelesschamber.domain.post.dto.response.PostPreviewResponseDto;
 import org.example.namelesschamber.domain.post.entity.FirstWriteGate;
 import org.example.namelesschamber.domain.post.entity.Post;
+import org.example.namelesschamber.domain.post.entity.PostStatus;
 import org.example.namelesschamber.domain.post.entity.PostType;
 import org.example.namelesschamber.domain.post.repository.PostRepository;
 import org.example.namelesschamber.domain.readhistory.service.ReadHistoryService;
@@ -45,7 +46,7 @@ public class PostService {
     public PostPreviewListResponse getPostPreviews(String userId) {
         int coin = coinService.getCoin(userId);
         List<PostPreviewResponseDto> posts =
-                postRepository.findAllByIsDeletedFalseOrderByCreatedAtDesc().stream()
+                postRepository.findAllByStatusOrderByCreatedAtDesc(PostStatus.ACTIVE).stream()
                         .map(PostPreviewResponseDto::from)
                         .toList();
         return PostPreviewListResponse.of(posts, coin);
@@ -55,14 +56,17 @@ public class PostService {
     public PostPreviewListResponse getPostPreviews(PostType type, String userId) {
         int coin = coinService.getCoin(userId);
         List<PostPreviewResponseDto> posts =
-                postRepository.findAllByTypeAndIsDeletedFalseOrderByCreatedAtDesc(type).stream()
+                postRepository.findAllByTypeAndStatusOrderByCreatedAtDesc(type, PostStatus.ACTIVE).stream()
                         .map(PostPreviewResponseDto::from)
                         .toList();
         return PostPreviewListResponse.of(posts, coin);
     }
 
+    @Transactional("mongoTransactionManager")
     public PostCreateResponseDto createPost(PostCreateRequestDto request, String userId) {
         request.type().validateContentLength(request.content());
+
+        int coin = coinService.rewardForPost(userId, 1);
 
         Post post = postRepository.save(Post.builder()
                 .title(request.title())
@@ -70,20 +74,8 @@ public class PostService {
                 .type(request.type())
                 .tags(request.tags())
                 .userId(userId)
+                .status(PostStatus.ACTIVE)
                 .build());
-
-        // 코인 지급 보상 트랜잭션
-        int coin;
-        try {
-            coin = coinService.rewardForPost(userId, 1);
-        } catch (RuntimeException ex) {
-            try {
-                postRepository.deleteById(post.getId());
-            } catch (RuntimeException cleanupEx) {
-                log.error("Compensation(delete post) failed. postId={}, userId={}", post.getId(), userId, cleanupEx);
-            }
-            throw ex;
-        }
 
         boolean isFirstToday;
         try {
@@ -136,36 +128,26 @@ public class PostService {
         return (before == null);
     }
 
+    @Transactional("mongoTransactionManager")
     public PostDetailResponseDto getPostById(String postId, String userId) {
 
-        Post post = postRepository.findById(postId)
+        Post post = postRepository.findByIdAndStatus(postId, PostStatus.ACTIVE)
                 .orElseThrow(() -> new CustomException(ErrorCode.POST_NOT_FOUND));
 
         boolean isOwner = userId.equals(post.getUserId());
 
-        boolean chargedCoin = false;
+        boolean firstRead = readHistoryService.record(userId, postId);
 
-        if (!isOwner) {
-            chargedCoin = coinService.chargeIfEnough(userId, 1);
-
+        if (firstRead && !isOwner) {
+            boolean chargedCoin = coinService.chargeIfEnough(userId, 1);
             if (!chargedCoin) {
                 log.warn("User {} does not have enough coins to read post {}", userId, postId);
                 throw new CustomException(ErrorCode.NOT_ENOUGH_COIN);
             }
         }
 
-        boolean firstRead;
-        try {
-             firstRead = readHistoryService.record(userId, postId);
-        } catch (RuntimeException ex) {
-            if (chargedCoin) coinService.refund(userId, 1);
-            throw ex;
-        }
-
         if (firstRead) {
             incrementViews(postId);
-        } else if (chargedCoin) {
-            coinService.refund(userId, 1);
         }
 
         int finalCoin = coinService.getCoin(userId);
@@ -176,7 +158,7 @@ public class PostService {
 
     @Transactional(readOnly = true)
     public List<PostPreviewResponseDto> getMyPosts(String userId) {
-        return postRepository.findAllByUserIdOrderByCreatedAtDesc(userId).stream()
+        return postRepository.findAllByUserIdAndStatusOrderByCreatedAtDesc(userId, PostStatus.ACTIVE).stream()
                 .map(PostPreviewResponseDto::from)
                 .toList();
     }
