@@ -72,11 +72,11 @@ public class ReadHistoryService {
      */
     public boolean record(String userId, String postId) {
         Query q = Query.query(Criteria.where("userId").is(userId).and("postId").is(postId));
+        LocalDateTime now = LocalDateTime.now();
         Update u = new Update()
                 .setOnInsert("userId", userId)
                 .setOnInsert("postId", postId)
-                .setOnInsert("readAt", LocalDateTime.now())
-                .set("readAt", LocalDateTime.now());
+                .set("readAt", now);
         return mongoTemplate.upsert(q, u, ReadHistory.class).getUpsertedId() != null;
     }
 }
