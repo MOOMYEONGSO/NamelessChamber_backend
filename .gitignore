@@ -40,3 +40,6 @@ bin/
 /.idea/
 
 *.env
+.env
+.ai/
+.aiassistant/
